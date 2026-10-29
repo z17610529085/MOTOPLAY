@@ -1,7 +1,6 @@
 package com.motoplay.dashcam.service
 import android.app.Notification
 import android.app.PendingIntent
-import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -11,10 +10,9 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ConcurrentCamera
 import androidx.camera.core.Preview
-import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.FileOutputOptions
 import androidx.camera.video.Quality
@@ -47,8 +45,9 @@ import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 /**
- * 录像前台服务。
- * 负责：CameraX 生命周期、分段循环录像、双摄降级、GPS 采集、存储清理。
+ * 录像前台服务（单后置摄像头版）。
+ * 相机（预览 + 录像）统一由本服务绑定，UI 只提供 PreviewView 显示画面，
+ * 避免界面与服务重复绑定相机导致卡死。
  */
 class RecordingService : LifecycleService() {
     companion object {
@@ -60,13 +59,16 @@ class RecordingService : LifecycleService() {
         @Volatile
         var isRunning: Boolean = false
             private set
+        /**
+         * UI 预览控件，由 MainActivity 在启动服务前注入。
+         * 服务用它把相机画面输出到屏幕。
+         */
+        @Volatile
+        var uiPreviewView: PreviewView? = null
         private val _recordingState = MutableStateFlow(RecordingState())
         val recordingState: StateFlow<RecordingState> = _recordingState
         private val _gpsState = MutableStateFlow(GpsState())
         val gpsState: StateFlow<GpsState> = _gpsState
-        /** 供 UI 绑定 CameraX 预览 */
-        var cameraProvider: ProcessCameraProvider? = null
-            private set
         fun start(context: Context) {
             val intent = Intent(context, RecordingService::class.java).apply { action = ACTION_START }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -91,14 +93,11 @@ class RecordingService : LifecycleService() {
     private var wakeLock: PowerManager.WakeLock? = null
     // 录像相关
     private var videoCapture: VideoCapture<Recorder>? = null
-    private var frontVideoCapture: VideoCapture<Recorder>? = null
     private var activeRecording: Recording? = null
-    private var frontRecording: Recording? = null
     private var currentFile: File? = null
-    private var frontFile: File? = null
     private var segmentJob: Job? = null
-    private var isDualCamera = false
     private var isRecording = false
+    private var cameraBound = false
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
     }
@@ -196,101 +195,54 @@ class RecordingService : LifecycleService() {
             Log.e(TAG, "wakeLock failed", e)
         }
     }
-    /** 初始化相机并开始录像 */
+    /** 初始化相机并开始录像（单后置） */
     private fun startRecording() {
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             try {
                 val provider = future.get()
-                cameraProvider = provider
                 bindAndRecord(provider)
             } catch (e: Exception) {
                 Log.e(TAG, "camera init failed", e)
-                _recordingState.value = _recordingState.value.copy(error = "相机初始化失败: ${e.message}")
+                _recordingState.value =
+                    _recordingState.value.copy(error = "相机初始化失败: ${e.message}")
             }
         }, ContextCompat.getMainExecutor(this))
     }
+    /** 绑定后置摄像头（预览 + 录像一起绑），然后开始分段循环 */
     private fun bindAndRecord(provider: ProcessCameraProvider) {
-        provider.unbindAll()
-        val wantDual = Prefs.useFrontCamera
-        var dualSuccess = false
-        if (wantDual) {
-            dualSuccess = tryBindDual(provider)
-        }
-        if (!dualSuccess) {
-            Log.i(TAG, "双摄不可用，降级为单后置摄像头")
-            bindSingle(provider)
-        }
-        isDualCamera = dualSuccess
-        _recordingState.value = _recordingState.value.copy(
-            dualCamera = dualSuccess,
-            cameraMode = if (dualSuccess) "双摄并发" else "单后置"
-        )
-        startSegmentLoop()
-    }
-    /** 尝试绑定双摄，任何异常都返回 false 触发降级 */
-    private fun tryBindDual(provider: ProcessCameraProvider): Boolean {
-        return try {
-            val concurrentInfos = provider.availableConcurrentCameraInfos
-            if (concurrentInfos.isNullOrEmpty()) return false
-            var backSelector: CameraSelector? = null
-            var frontSelector: CameraSelector? = null
-            for (pair in concurrentInfos) {
-                val back = pair.firstOrNull { it.lensFacing == CameraSelector.LENS_FACING_BACK }
-                val front = pair.firstOrNull { it.lensFacing == CameraSelector.LENS_FACING_FRONT }
-                if (back != null && front != null) {
-                    backSelector = CameraSelector.Builder()
-                        .requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
-                    frontSelector = CameraSelector.Builder()
-                        .requireLensFacing(CameraSelector.LENS_FACING_FRONT).build()
-                    break
-                }
-            }
-            if (backSelector == null || frontSelector == null) return false
-            val qualitySelector = QualitySelector.fromOrderedList(
-                listOf(Quality.HD, Quality.SD),
-                FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
-            )
-            val backRecorder = Recorder.Builder().setQualitySelector(qualitySelector).build()
-            val frontRecorder = Recorder.Builder().setQualitySelector(qualitySelector).build()
-            val backCapture = VideoCapture.withOutput(backRecorder)
-            val frontCapture = VideoCapture.withOutput(frontRecorder)
-            // CameraX 双摄并发绑定：bindToLifecycle(List<SingleCameraConfig>)
-            val backGroup = UseCaseGroup.Builder().addUseCase(backCapture).build()
-            val frontGroup = UseCaseGroup.Builder().addUseCase(frontCapture).build()
-            val configs = listOf(
-                ConcurrentCamera.SingleCameraConfig(backSelector, backGroup, this),
-                ConcurrentCamera.SingleCameraConfig(frontSelector, frontGroup, this)
-            )
-            provider.bindToLifecycle(configs)
-            videoCapture = backCapture
-            frontVideoCapture = frontCapture
-            true
-        } catch (e: Throwable) {
-            Log.w(TAG, "双摄绑定失败，降级单摄", e)
-            try {
-                provider.unbindAll()
-            } catch (ignored: Exception) {
-            }
-            false
-        }
-    }
-    private fun bindSingle(provider: ProcessCameraProvider) {
         try {
+            provider.unbindAll()
             val qualitySelector = QualitySelector.fromOrderedList(
                 listOf(Quality.FHD, Quality.HD, Quality.SD),
                 FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
             )
             val recorder = Recorder.Builder().setQualitySelector(qualitySelector).build()
             val capture = VideoCapture.withOutput(recorder)
+            // 预览与录像由服务统一绑定，画面输出到 UI 注入的 PreviewView
+            val preview = Preview.Builder().build().also { p ->
+                uiPreviewView?.let { view ->
+                    p.setSurfaceProvider(view.surfaceProvider)
+                }
+            }
             provider.bindToLifecycle(
-                this, CameraSelector.DEFAULT_BACK_CAMERA, capture
+                this,
+                CameraSelector.DEFAULT_BACK_CAMERA,
+                preview,
+                capture
             )
             videoCapture = capture
-            frontVideoCapture = null
-        } catch (e: Exception) {
-            Log.e(TAG, "单摄绑定失败", e)
-            _recordingState.value = _recordingState.value.copy(error = "相机绑定失败")
+            cameraBound = true
+            _recordingState.value = _recordingState.value.copy(
+                dualCamera = false,
+                cameraMode = "单后置"
+            )
+            startSegmentLoop()
+        } catch (e: Throwable) {
+            Log.e(TAG, "相机绑定失败", e)
+            cameraBound = false
+            _recordingState.value =
+                _recordingState.value.copy(error = "相机绑定失败: ${e.message}")
         }
     }
     /** 分段循环：每 N 分钟切一个文件 */
@@ -345,22 +297,6 @@ class RecordingService : LifecycleService() {
             Log.e(TAG, "启动录像失败", e)
             _recordingState.value = _recordingState.value.copy(error = "录像启动失败: ${e.message}")
         }
-        // 前置摄像头（若双摄可用）
-        frontVideoCapture?.let { front ->
-            val fFile = File(file.parentFile, "FRONT_${file.name}")
-            frontFile = fFile
-            val fOptions = FileOutputOptions.Builder(fFile).build()
-            try {
-                frontRecording = front.output.prepareRecording(this, fOptions)
-                    .start(ContextCompat.getMainExecutor(this)) { ev ->
-                        if (ev is VideoRecordEvent.Finalize) {
-                            StorageManager.publishToGallery(this, fFile)
-                        }
-                    }
-            } catch (e: Exception) {
-                Log.w(TAG, "前置录像失败", e)
-            }
-        }
     }
     private fun stopCurrentSegment() {
         try {
@@ -368,12 +304,6 @@ class RecordingService : LifecycleService() {
             activeRecording = null
         } catch (e: Exception) {
             Log.w(TAG, "stop segment error", e)
-        }
-        try {
-            frontRecording?.stop()
-            frontRecording = null
-        } catch (e: Exception) {
-            Log.w(TAG, "stop front segment error", e)
         }
         isRecording = false
         _recordingState.value = _recordingState.value.copy(recording = false)
@@ -395,13 +325,22 @@ class RecordingService : LifecycleService() {
         segmentJob?.cancel()
         segmentJob = null
         stopCurrentSegment()
-        try {
-            cameraProvider?.unbindAll()
-        } catch (e: Exception) {
-            Log.w(TAG, "unbind error", e)
+        if (cameraBound) {
+            try {
+                cameraProviderInstance()?.unbindAll()
+            } catch (e: Exception) {
+                Log.w(TAG, "unbind error", e)
+            }
+            cameraBound = false
         }
         isRecording = false
         _recordingState.value = _recordingState.value.copy(recording = false)
+    }
+    private fun cameraProviderInstance(): ProcessCameraProvider? = try {
+        val f = ProcessCameraProvider.getInstance(this)
+        if (f.isDone) f.get() else null
+    } catch (e: Exception) {
+        null
     }
     private fun updateNotification() {
         try {
