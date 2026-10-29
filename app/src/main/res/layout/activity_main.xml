@@ -159,19 +159,10 @@
                     <FrameLayout
                         android:layout_width="match_parent"
                         android:layout_height="match_parent">
-                        <androidx.camera.view.PreviewView
+                        <TextureView
                             android:id="@+id/previewView"
                             android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            app:scaleType="fillCenter" />
-                        <androidx.camera.view.PreviewView
-                            android:id="@+id/frontPreviewView"
-                            android:layout_width="110dp"
-                            android:layout_height="80dp"
-                            android:layout_gravity="top|end"
-                            android:layout_margin="8dp"
-                            android:visibility="gone"
-                            app:scaleType="fillCenter" />
+                            android:layout_height="match_parent" />
                         <TextView
                             android:id="@+id/tvWatermark"
                             android:layout_width="wrap_content"
