@@ -253,12 +253,13 @@ class RecordingService : LifecycleService() {
             val frontRecorder = Recorder.Builder().setQualitySelector(qualitySelector).build()
             val backCapture = VideoCapture.withOutput(backRecorder)
             val frontCapture = VideoCapture.withOutput(frontRecorder)
-            // CameraX 双摄并发绑定：bindToLifecycle(lifecycleOwner, primarySelector, useCases..., secondarySelector, useCases...)
+            // CameraX 双摄并发绑定：
+            // bindToLifecycle(lifecycleOwner, primarySelector, secondarySelector, vararg useCases)
             provider.bindToLifecycle(
                 this,
                 backSelector,
-                backCapture,
                 frontSelector,
+                backCapture,
                 frontCapture
             )
             videoCapture = backCapture
