@@ -19,7 +19,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.motoplay.dashcam.data.StorageManager
 import com.motoplay.dashcam.databinding.ActivityMainBinding
 import com.motoplay.dashcam.service.RecordingService
 import com.motoplay.dashcam.util.Prefs
@@ -45,6 +44,8 @@ class MainActivity : AppCompatActivity() {
     private val viewModel: MainViewModel by viewModels()
     /** 用户手动停止过录像时，不再自动重启 */
     private var userStopped = false
+    /** 预览是否已绑定 */
+    private var previewBound = false
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
@@ -52,7 +53,9 @@ class MainActivity : AppCompatActivity() {
         if (denied.isNotEmpty()) {
             Toast.makeText(this, "部分权限未授予，功能可能受限：$denied", Toast.LENGTH_LONG).show()
         }
-        startRecordingIfPermitted()
+        // 权限授予后：先绑预览，再自动开录
+        bindPreviewIfPossible()
+        autoStartRecording()
     }
     private val wallpaperLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
@@ -71,9 +74,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        // 屏幕常亮
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        // 全屏沉浸
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, binding.root).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -82,32 +83,47 @@ class MainActivity : AppCompatActivity() {
         applyWallpaper(Prefs.wallpaperPath)
         setupButtons()
         observeState()
-        // 预览控件交给录像服务统一管理（服务负责绑定相机，避免重复绑定卡死）
-        RecordingService.uiPreviewView = binding.previewView
         requestPermissionsIfNeeded()
-        if (intent.getBooleanExtra(EXTRA_AUTO_START, false)) {
-            startRecordingIfPermitted()
-        }
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getBooleanExtra(EXTRA_AUTO_START, false)) {
-            startRecordingIfPermitted()
+            autoStartRecording()
         }
     }
-    override fun onStart() {
-        super.onStart()
-        // 自动开始录制：用户没有手动停止过、当前也没在录，就自动开录
-        if (!userStopped && !RecordingService.recordingState.value.recording) {
-            startRecordingIfPermitted()
+    override fun onResume() {
+        super.onResume()
+        // 界面可见时绑定预览（此时 View 已 attach，Surface 可用）
+        bindPreviewIfPossible()
+        autoStartRecording()
+    }
+    override fun onPause() {
+        super.onPause()
+        // 界面不可见时解绑预览，释放相机资源给录像服务
+        if (previewBound) {
+            CameraPreviewBinder.unbind()
+            previewBound = false
         }
     }
     override fun onDestroy() {
-        // 防止持有已销毁界面的引用
-        if (RecordingService.uiPreviewView === binding.previewView) {
-            RecordingService.uiPreviewView = null
-        }
         super.onDestroy()
+        CameraPreviewBinder.unbind()
+        previewBound = false
+    }
+    /** 绑定预览画面 */
+    private fun bindPreviewIfPossible() {
+        if (previewBound) return
+        val camOk = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED
+        if (!camOk) return
+        previewBound = true
+        CameraPreviewBinder.bind(this, binding.previewView)
+    }
+    /** 自动开始录制（用户未手动停止时） */
+    private fun autoStartRecording() {
+        if (userStopped) return
+        if (RecordingService.recordingState.value.recording) return
+        startRecordingIfPermitted()
     }
     private fun applyWallpaper(path: String?) {
         if (path.isNullOrBlank()) {
@@ -205,7 +221,8 @@ class MainActivity : AppCompatActivity() {
         if (missing.isNotEmpty()) {
             permissionLauncher.launch(missing.toTypedArray())
         } else {
-            startRecordingIfPermitted()
+            bindPreviewIfPossible()
+            autoStartRecording()
         }
     }
     private fun startRecordingIfPermitted() {
