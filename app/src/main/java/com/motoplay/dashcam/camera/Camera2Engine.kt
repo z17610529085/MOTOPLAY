@@ -205,17 +205,12 @@ class Camera2Engine(private val context: Context) {
             MediaRecorder(context) else @Suppress("DEPRECATION") MediaRecorder()
         try {
             recorder.setVideoSource(MediaRecorder.VideoSource.SURFACE)
-            if (withAudio) {
-                val audioOk = ContextCompat.checkSelfPermission(
-                    context, Manifest.permission.RECORD_AUDIO
-                ) == PackageManager.PERMISSION_GRANTED
-                if (audioOk) {
-                    recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
-                } else {
-                    recorder.setAudioSource(MediaRecorder.AudioSource.NONE)
-                }
-            } else {
-                recorder.setAudioSource(MediaRecorder.AudioSource.NONE)
+            // 只有需要且已授权时才设置音频源；不设置即为纯视频录制
+            val audioEnabled = withAudio && ContextCompat.checkSelfPermission(
+                context, Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+            if (audioEnabled) {
+                recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
             }
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             recorder.setOutputFile(file.absolutePath)
@@ -223,7 +218,7 @@ class Camera2Engine(private val context: Context) {
             recorder.setVideoFrameRate(30)
             recorder.setVideoSize(videoSize.width, videoSize.height)
             recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            if (withAudio) {
+            if (audioEnabled) {
                 recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 recorder.setAudioChannels(1)
                 recorder.setAudioSamplingRate(44100)
