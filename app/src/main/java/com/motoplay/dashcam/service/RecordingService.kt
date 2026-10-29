@@ -10,25 +10,13 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
-import android.view.View
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.camera.video.FallbackStrategy
-import androidx.camera.video.FileOutputOptions
-import androidx.camera.video.Quality
-import androidx.camera.video.QualitySelector
-import androidx.camera.video.Recorder
-import androidx.camera.video.Recording
-import androidx.camera.video.VideoCapture
-import androidx.camera.video.VideoRecordEvent
+import android.view.TextureView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import com.motoplay.dashcam.MotoPlayApp
 import com.motoplay.dashcam.R
+import com.motoplay.dashcam.camera.Camera2Engine
 import com.motoplay.dashcam.data.GpsState
 import com.motoplay.dashcam.data.GpsTracker
 import com.motoplay.dashcam.data.StorageManager
@@ -44,17 +32,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.io.File
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 /**
- * 录像前台服务（单后置摄像头）。
+ * 录像前台服务（Camera2 原生引擎）。
  *
- * 核心架构（行车记录仪标准模式）：
- * 1. 相机（Preview + VideoCapture）由本服务【统一绑定】，服务是唯一的生命周期持有者，
- *    避免两个 Owner 抢同一摄像头导致"相机绑定失败"。
- * 2. 界面通过 attachPreview() 把 PreviewView 挂到已绑定的 Preview 用例上；
- *    界面每次 onResume 重新挂载（解决界面重建后预览定格的问题），
- *    界面销毁时摘除，录像不受影响继续跑。
+ * 相机由服务统一持有（Camera2Engine），界面只提供 TextureView 作为画面输出目标。
+ * TextureView 自己持有 SurfaceTexture，切后台/锁屏/界面重建都不会导致画面定格。
  */
 class RecordingService : LifecycleService() {
     companion object {
@@ -70,6 +52,10 @@ class RecordingService : LifecycleService() {
         @Volatile
         var INSTANCE: RecordingService? = null
             private set
+        private val _recordingState = MutableStateFlow(RecordingState())
+        val recordingState: StateFlow<RecordingState> = _recordingState
+        private val _gpsState = MutableStateFlow(GpsState())
+        val gpsState: StateFlow<GpsState> = _gpsState
         fun start(context: Context) {
             val intent = Intent(context, RecordingService::class.java).apply { action = ACTION_START }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -86,26 +72,15 @@ class RecordingService : LifecycleService() {
             val intent = Intent(context, RecordingService::class.java).apply { action = ACTION_LOCK }
             context.startService(intent)
         }
-        private val _recordingState = MutableStateFlow(RecordingState())
-        val recordingState: StateFlow<RecordingState> = _recordingState
-        private val _gpsState = MutableStateFlow(GpsState())
-        val gpsState: StateFlow<GpsState> = _gpsState
     }
     private val binder = LocalBinder()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var gpsTracker: GpsTracker? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    // 相机相关
-    private var cameraProvider: ProcessCameraProvider? = null
-    private var previewUseCase: Preview? = null
-    private var videoCapture: VideoCapture<Recorder>? = null
-    private var uiPreviewView: PreviewView? = null
-    private var activeRecording: Recording? = null
+    private var engine: Camera2Engine? = null
     private var currentFile: File? = null
     private var segmentJob: Job? = null
     private var isRecording = false
-    private var cameraBound = false
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
     }
@@ -127,13 +102,34 @@ class RecordingService : LifecycleService() {
             }
         }
         acquireWakeLock()
+        initEngine()
+    }
+    private fun initEngine() {
+        val e = Camera2Engine(this)
+        e.onError = { msg ->
+            Log.e(TAG, "engine error: $msg")
+            _recordingState.value = _recordingState.value.copy(error = msg)
+        }
+        e.onRecordingStarted = { file ->
+            isRecording = true
+            _recordingState.value = _recordingState.value.copy(
+                recording = true, currentFile = file.absolutePath
+            )
+            updateNotification()
+        }
+        e.onRecordingStopped = { file ->
+            StorageManager.publishToGallery(this, file)
+            StorageManager.enforceStorageLimit(this)
+        }
+        e.start()
+        engine = e
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         when (intent?.action) {
             ACTION_START -> {
                 startForegroundSafely()
-                if (!isRecording) startRecording()
+                startRecording()
             }
             ACTION_STOP -> {
                 stopRecording()
@@ -148,18 +144,13 @@ class RecordingService : LifecycleService() {
         return Service.START_STICKY
     }
     /**
-     * 界面挂载/重新挂载预览控件。
-     * MainActivity 在 onResume 时调用；若相机已绑定，立即把画面输出到新控件。
+     * 界面挂载 / 重新挂载预览控件。
+     * TextureView 自己持有 Surface，服务只把画面推到它上面，不会定格。
      */
-    fun attachPreview(view: PreviewView?) {
-        uiPreviewView = view
-        previewUseCase?.let { p ->
-            view?.let {
-                if (it.isAttachedToWindow) {
-                    p.setSurfaceProvider(it.surfaceProvider)
-                    Log.i(TAG, "预览控件已挂载")
-                }
-            }
+    fun attachPreview(view: TextureView?) {
+        engine?.setPreviewTarget(view)
+        if (view != null) {
+            engine?.openCamera()
         }
     }
     private fun startForegroundSafely() {
@@ -219,125 +210,38 @@ class RecordingService : LifecycleService() {
         }
     }
     private fun startRecording() {
-        val future = ProcessCameraProvider.getInstance(this)
-        future.addListener({
-            try {
-                val provider = future.get()
-                bindCamera(provider)
-            } catch (e: Exception) {
-                Log.e(TAG, "camera init failed", e)
-                _recordingState.value =
-                    _recordingState.value.copy(error = "相机初始化失败: ${e.message}")
-            }
-        }, ContextCompat.getMainExecutor(this))
-    }
-    /**
-     * 统一绑定：Preview + VideoCapture 一起绑到服务生命周期。
-     * 只有一个 Owner，不会出现绑定冲突。
-     */
-    private fun bindCamera(provider: ProcessCameraProvider) {
-        try {
-            provider.unbindAll()
-            val qualitySelector = QualitySelector.fromOrderedList(
-                listOf(Quality.FHD, Quality.HD, Quality.SD),
-                FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
-            )
-            val recorder = Recorder.Builder().setQualitySelector(qualitySelector).build()
-            val capture = VideoCapture.withOutput(recorder)
-            val preview = Preview.Builder().build()
-            // 若界面已就绪，直接输出画面；否则等 attachPreview() 挂载
-            uiPreviewView?.let {
-                if (it.isAttachedToWindow) {
-                    preview.setSurfaceProvider(it.surfaceProvider)
-                }
-            }
-            provider.bindToLifecycle(
-                this,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
-                capture
-            )
-            cameraProvider = provider
-            previewUseCase = preview
-            videoCapture = capture
-            cameraBound = true
-            _recordingState.value = _recordingState.value.copy(
-                dualCamera = false,
-                cameraMode = "单后置"
-            )
-            startSegmentLoop()
-        } catch (e: Throwable) {
-            Log.e(TAG, "相机绑定失败", e)
-            cameraBound = false
-            _recordingState.value =
-                _recordingState.value.copy(error = "相机绑定失败: ${e.message}")
-        }
+        engine?.openCamera()
+        _recordingState.value = _recordingState.value.copy(cameraMode = "单后置 Camera2")
+        startSegmentLoop()
     }
     private fun startSegmentLoop() {
         segmentJob?.cancel()
         segmentJob = serviceScope.launch {
+            // 等相机就绪
+            delay(1500)
             while (true) {
                 recordSegment()
                 val minutes = Prefs.segmentMinutes
                 delay(minutes * 60_000L)
-                stopCurrentSegment()
+                engine?.stopRecording()
+                isRecording = false
+                _recordingState.value = _recordingState.value.copy(recording = false)
             }
         }
     }
     private fun recordSegment() {
-        val capture = videoCapture ?: return
+        val e = engine ?: return
         val file = StorageManager.newSegmentFile(this)
         currentFile = file
-        val options = FileOutputOptions.Builder(file).build()
-        var pendingRecording = capture.output.prepareRecording(this, options)
-        if (Prefs.recordAudio) {
-            try {
-                if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
-                    == android.content.pm.PackageManager.PERMISSION_GRANTED
-                ) {
-                    pendingRecording = pendingRecording.withAudioEnabled()
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "音频启用失败", e)
-            }
+        val ok = e.startRecording(file, Prefs.recordAudio)
+        if (!ok) {
+            Log.w(TAG, "分段录制启动失败，稍后重试")
         }
-        try {
-            activeRecording = pendingRecording.start(ContextCompat.getMainExecutor(this)) { event ->
-                when (event) {
-                    is VideoRecordEvent.Start -> {
-                        isRecording = true
-                        _recordingState.value = _recordingState.value.copy(
-                            recording = true, currentFile = file.absolutePath
-                        )
-                        updateNotification()
-                    }
-                    is VideoRecordEvent.Finalize -> {
-                        if (event.hasError()) {
-                            Log.e(TAG, "录像结束错误: ${event.error}")
-                        }
-                        StorageManager.publishToGallery(this, file)
-                        StorageManager.enforceStorageLimit(this)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "启动录像失败", e)
-            _recordingState.value = _recordingState.value.copy(error = "录像启动失败: ${e.message}")
-        }
-    }
-    private fun stopCurrentSegment() {
-        try {
-            activeRecording?.stop()
-            activeRecording = null
-        } catch (e: Exception) {
-            Log.w(TAG, "stop segment error", e)
-        }
-        isRecording = false
-        _recordingState.value = _recordingState.value.copy(recording = false)
     }
     private fun lockCurrentSegment() {
         val file = currentFile
-        stopCurrentSegment()
+        engine?.stopRecording()
+        isRecording = false
         if (file != null && file.exists()) {
             val locked = StorageManager.lockFile(this, file)
             _recordingState.value = _recordingState.value.copy(
@@ -350,17 +254,7 @@ class RecordingService : LifecycleService() {
     private fun stopRecording() {
         segmentJob?.cancel()
         segmentJob = null
-        stopCurrentSegment()
-        if (cameraBound) {
-            try {
-                cameraProvider?.unbindAll()
-            } catch (e: Exception) {
-                Log.w(TAG, "unbind error", e)
-            }
-            cameraBound = false
-        }
-        previewUseCase = null
-        videoCapture = null
+        engine?.stopRecording()
         isRecording = false
         _recordingState.value = _recordingState.value.copy(recording = false)
     }
@@ -384,15 +278,15 @@ class RecordingService : LifecycleService() {
         isRunning = false
         INSTANCE = null
         stopRecording()
+        engine?.release()
+        engine = null
         gpsTracker?.stop()
-        uiPreviewView = null
         try {
             wakeLock?.let { if (it.isHeld) it.release() }
         } catch (e: Exception) {
             // ignore
         }
         serviceScope.cancel()
-        cameraExecutor.shutdown()
         super.onDestroy()
     }
 }
