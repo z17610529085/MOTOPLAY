@@ -11,7 +11,9 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ConcurrentCamera
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.FileOutputOptions
@@ -253,15 +255,14 @@ class RecordingService : LifecycleService() {
             val frontRecorder = Recorder.Builder().setQualitySelector(qualitySelector).build()
             val backCapture = VideoCapture.withOutput(backRecorder)
             val frontCapture = VideoCapture.withOutput(frontRecorder)
-            // CameraX 双摄并发绑定：
-            // bindToLifecycle(lifecycleOwner, primarySelector, secondarySelector, vararg useCases)
-            provider.bindToLifecycle(
-                this,
-                backSelector,
-                frontSelector,
-                backCapture,
-                frontCapture
+            // CameraX 双摄并发绑定：bindToLifecycle(List<SingleCameraConfig>)
+            val backGroup = UseCaseGroup.Builder().addUseCase(backCapture).build()
+            val frontGroup = UseCaseGroup.Builder().addUseCase(frontCapture).build()
+            val configs = listOf(
+                ConcurrentCamera.SingleCameraConfig(backSelector, backGroup, this),
+                ConcurrentCamera.SingleCameraConfig(frontSelector, frontGroup, this)
             )
+            provider.bindToLifecycle(configs)
             videoCapture = backCapture
             frontVideoCapture = frontCapture
             true
