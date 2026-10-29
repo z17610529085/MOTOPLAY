@@ -43,7 +43,8 @@ class MainActivity : AppCompatActivity() {
     }
     private lateinit var binding: ActivityMainBinding
     private val viewModel: MainViewModel by viewModels()
-    private var previewBound: Boolean? = null
+    /** 用户手动停止过录像时，不再自动重启 */
+    private var userStopped = false
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
@@ -80,11 +81,9 @@ class MainActivity : AppCompatActivity() {
         }
         applyWallpaper(Prefs.wallpaperPath)
         setupButtons()
-        // 进入即显示摄像头预览
-        binding.previewView.post {
-            PreviewBinder.bind(this, binding.previewView, null, false)
-        }
         observeState()
+        // 预览控件交给录像服务统一管理（服务负责绑定相机，避免重复绑定卡死）
+        RecordingService.uiPreviewView = binding.previewView
         requestPermissionsIfNeeded()
         if (intent.getBooleanExtra(EXTRA_AUTO_START, false)) {
             startRecordingIfPermitted()
@@ -95,6 +94,20 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra(EXTRA_AUTO_START, false)) {
             startRecordingIfPermitted()
         }
+    }
+    override fun onStart() {
+        super.onStart()
+        // 自动开始录制：用户没有手动停止过、当前也没在录，就自动开录
+        if (!userStopped && !RecordingService.recordingState.value.recording) {
+            startRecordingIfPermitted()
+        }
+    }
+    override fun onDestroy() {
+        // 防止持有已销毁界面的引用
+        if (RecordingService.uiPreviewView === binding.previewView) {
+            RecordingService.uiPreviewView = null
+        }
+        super.onDestroy()
     }
     private fun applyWallpaper(path: String?) {
         if (path.isNullOrBlank()) {
@@ -122,8 +135,10 @@ class MainActivity : AppCompatActivity() {
     private fun setupButtons() {
         binding.btnRecord.setOnClickListener {
             if (RecordingService.recordingState.value.recording) {
+                userStopped = true
                 RecordingService.stop(this)
             } else {
+                userStopped = false
                 startRecordingIfPermitted()
             }
         }
@@ -150,7 +165,6 @@ class MainActivity : AppCompatActivity() {
             "分段时长：${Prefs.segmentMinutes} 分钟",
             "存储上限：${Prefs.maxStorageGb} GB",
             "录音：${if (Prefs.recordAudio) "开" else "关"}",
-            "双摄尝试：${if (Prefs.useFrontCamera) "开" else "关"}",
             "水印：${if (Prefs.watermarkEnabled) "开" else "关"}",
             "开机自启：${if (Prefs.autoStartOnBoot) "开" else "关"}",
             "恢复默认壁纸"
@@ -162,10 +176,9 @@ class MainActivity : AppCompatActivity() {
                     0 -> cycleSegment()
                     1 -> cycleStorage()
                     2 -> Prefs.setBoolean(Prefs.KEY_RECORD_AUDIO, !Prefs.recordAudio)
-                    3 -> Prefs.setBoolean(Prefs.KEY_USE_FRONT_CAMERA, !Prefs.useFrontCamera)
-                    4 -> Prefs.setBoolean(Prefs.KEY_WATERMARK_ENABLED, !Prefs.watermarkEnabled)
-                    5 -> Prefs.setBoolean(Prefs.KEY_AUTO_START_ON_BOOT, !Prefs.autoStartOnBoot)
-                    6 -> {
+                    3 -> Prefs.setBoolean(Prefs.KEY_WATERMARK_ENABLED, !Prefs.watermarkEnabled)
+                    4 -> Prefs.setBoolean(Prefs.KEY_AUTO_START_ON_BOOT, !Prefs.autoStartOnBoot)
+                    5 -> {
                         Prefs.wallpaperPath = null
                         binding.ivWallpaper.setImageResource(com.motoplay.dashcam.R.drawable.bg_default)
                     }
@@ -216,21 +229,11 @@ class MainActivity : AppCompatActivity() {
                         )
                         binding.btnRecord.text = if (s.recording) "停止录像" else "开始录像"
                         binding.tvCameraMode.text = s.cameraMode
-                        binding.frontPreviewView.visibility =
-                            if (s.dualCamera) View.VISIBLE else View.GONE
                         binding.tvPreviewHint.visibility =
                             if (s.recording) View.GONE else View.VISIBLE
-                        // 预览绑定（仅首次或双摄状态变化时）
-                        if (previewBound != s.dualCamera) {
-                            previewBound = s.dualCamera
-                            PreviewBinder.bind(
-                                this@MainActivity,
-                                binding.previewView,
-                                binding.frontPreviewView,
-                                s.dualCamera
-                            )
+                        s.error?.let {
+                            Toast.makeText(this@MainActivity, it, Toast.LENGTH_SHORT).show()
                         }
-                        s.error?.let { Toast.makeText(this@MainActivity, it, Toast.LENGTH_SHORT).show() }
                     }
                 }
                 launch {
