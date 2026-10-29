@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+    <!-- 全局壁纸层：位于所有窗口最下方 -->
+    <ImageView
+        android:id="@+id/ivWallpaper"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="@null"
+        android:src="@drawable/bg_default" />
+    <!-- 壁纸暗化遮罩，保证功能窗口可读性 -->
+    <View
+        android:id="@+id/wallpaperScrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#40000000" />
+    <!-- 主分屏容器 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:padding="10dp">
+        <!-- ============ 左侧分屏：时间信息 ============ -->
+        <androidx.cardview.widget.CardView
+            android:id="@+id/leftPanel"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.28"
+            android:layout_marginEnd="6dp"
+            app:cardCornerRadius="18dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="@color/glass_bg">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="12dp">
+                <TextView
+                    android:id="@+id/tvTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="00:00"
+                    android:textColor="@color/text_primary"
+                    android:textSize="46sp"
+                    android:fontFamily="sans-serif-light"
+                    android:includeFontPadding="false" />
+                <TextView
+                    android:id="@+id/tvSeconds"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="00"
+                    android:textColor="@color/moto_orange"
+                    android:textSize="20sp"
+                    android:fontFamily="sans-serif-medium" />
+                <TextView
+                    android:id="@+id/tvDate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="2026-10-29"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp" />
+                <TextView
+                    android:id="@+id/tvWeekday"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="星期四"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+                <View
+                    android:layout_width="40dp"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="16dp"
+                    android:background="@color/glass_stroke" />
+                <TextView
+                    android:id="@+id/tvSpeed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textColor="@color/text_primary"
+                    android:textSize="52sp"
+                    android:fontFamily="sans-serif-black"
+                    android:includeFontPadding="false" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="km/h"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+                <TextView
+                    android:id="@+id/tvCoord"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center"
+                    android:text="GPS 搜索中…"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="10sp"
+                    android:maxLines="2" />
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <View
+                        android:id="@+id/recDot"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:background="@drawable/shape_dot_red" />
+                    <TextView
+                        android:id="@+id/tvRecStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="未录像"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+                <TextView
+                    android:id="@+id/tvCameraMode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="初始化中"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="10sp" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+        <!-- ============ 右侧分屏：三窗口 ============ -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.72"
+            android:orientation="vertical">
+            <!-- 上排：摄像头 + 天气 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="horizontal">
+                <!-- 左上：摄像头预览 -->
+                <androidx.cardview.widget.CardView
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="5dp"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp"
+                    app:cardBackgroundColor="@color/glass_bg">
+                    <FrameLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent">
+                        <androidx.camera.view.PreviewView
+                            android:id="@+id/previewView"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            app:scaleType="fillCenter" />
+                        <androidx.camera.view.PreviewView
+                            android:id="@+id/frontPreviewView"
+                            android:layout_width="110dp"
+                            android:layout_height="80dp"
+                            android:layout_gravity="top|end"
+                            android:layout_margin="8dp"
+                            android:visibility="gone"
+                            app:scaleType="fillCenter" />
+                        <TextView
+                            android:id="@+id/tvWatermark"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="bottom|start"
+                            android:layout_margin="10dp"
+                            android:background="#66000000"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="3dp"
+                            android:text="GPS 搜索中…"
+                            android:textColor="@color/white"
+                            android:textSize="10sp" />
+                        <TextView
+                            android:id="@+id/tvPreviewHint"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:text="点击「开始录像」"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="13sp" />
+                    </FrameLayout>
+                </androidx.cardview.widget.CardView>
+                <!-- 右上：天气 -->
+                <androidx.cardview.widget.CardView
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.42"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp"
+                    app:cardBackgroundColor="@color/glass_bg">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp">
+                        <TextView
+                            android:id="@+id/tvWeatherCity"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="北京"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+                        <TextView
+                            android:id="@+id/tvWeatherTemp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="--°C"
+                            android:textColor="@color/text_primary"
+                            android:textSize="34sp"
+                            android:fontFamily="sans-serif-light" />
+                        <TextView
+                            android:id="@+id/tvWeatherDesc"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="加载中…"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+                        <View
+                            android:layout_width="30dp"
+                            android:layout_height="1dp"
+                            android:layout_marginVertical="8dp"
+                            android:background="@color/glass_stroke" />
+                        <TextView
+                            android:id="@+id/tvWeatherDetail"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:text="体感 --\n湿度 --\n风速 --"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="10sp"
+                            android:lineSpacingExtra="3dp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+            </LinearLayout>
+            <!-- 底部：功能键长条 -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="76dp"
+                android:layout_marginTop="5dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="0dp"
+                app:cardBackgroundColor="@color/glass_bg">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="10dp">
+                    <Button
+                        android:id="@+id/btnRecord"
+                        style="@style/MotoButton"
+                        android:text="开始录像" />
+                    <Button
+                        android:id="@+id/btnLock"
+                        style="@style/MotoButton"
+                        android:text="锁定视频" />
+                    <Button
+                        android:id="@+id/btnList"
+                        style="@style/MotoButton"
+                        android:text="视频列表" />
+                    <Button
+                        android:id="@+id/btnWallpaper"
+                        style="@style/MotoButton"
+                        android:text="壁纸" />
+                    <Button
+                        android:id="@+id/btnSettings"
+                        style="@style/MotoButton"
+                        android:text="设置" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
