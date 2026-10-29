@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <external-files-path name="movies" path="Movies/" />
+    <external-files-path name="locked" path="Movies/Locked/" />
+    <files-path name="internal_movies" path="Movies/" />
+    <cache-path name="cache" path="." />
+    <external-path name="external" path="." />
+</paths>
