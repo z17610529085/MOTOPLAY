@@ -44,8 +44,6 @@ class MainActivity : AppCompatActivity() {
     private val viewModel: MainViewModel by viewModels()
     /** 用户手动停止过录像时，不再自动重启 */
     private var userStopped = false
-    /** 预览是否已绑定 */
-    private var previewBound = false
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
@@ -53,8 +51,8 @@ class MainActivity : AppCompatActivity() {
         if (denied.isNotEmpty()) {
             Toast.makeText(this, "部分权限未授予，功能可能受限：$denied", Toast.LENGTH_LONG).show()
         }
-        // 权限授予后：先绑预览，再自动开录
-        bindPreviewIfPossible()
+        // 权限授予后：挂载预览 + 自动开录
+        attachPreviewToService()
         autoStartRecording()
     }
     private val wallpaperLauncher = registerForActivityResult(
@@ -93,31 +91,26 @@ class MainActivity : AppCompatActivity() {
     }
     override fun onResume() {
         super.onResume()
-        // 界面可见时绑定预览（此时 View 已 attach，Surface 可用）
-        bindPreviewIfPossible()
+        // 界面可见：把预览控件挂到服务上（界面重建后这里是关键，
+        // 否则服务还拿着旧控件导致画面定格）
+        attachPreviewToService()
         autoStartRecording()
-    }
-    override fun onPause() {
-        super.onPause()
-        // 界面不可见时解绑预览，释放相机资源给录像服务
-        if (previewBound) {
-            CameraPreviewBinder.unbind()
-            previewBound = false
-        }
     }
     override fun onDestroy() {
         super.onDestroy()
-        CameraPreviewBinder.unbind()
-        previewBound = false
+        // 界面销毁：摘除预览控件，服务继续录像不受影响
+        if (RecordingService.isRunning) {
+            RecordingService.INSTANCE?.attachPreview(null)
+        }
     }
-    /** 绑定预览画面 */
-    private fun bindPreviewIfPossible() {
-        if (previewBound) return
-        val camOk = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED
-        if (!camOk) return
-        previewBound = true
-        CameraPreviewBinder.bind(this, binding.previewView)
+    /** 把当前界面的预览控件挂到服务（服务未运行时仅记录，绑定时会用到） */
+    private fun attachPreviewToService() {
+        val svc = RecordingService.INSTANCE
+        if (svc != null) {
+            svc.attachPreview(binding.previewView)
+        }
+        // 服务未运行时不强求：等 startRecordingIfPermitted 启动服务后，
+        // 服务绑定相机时会读取最新的挂载请求
     }
     /** 自动开始录制（用户未手动停止时） */
     private fun autoStartRecording() {
@@ -221,7 +214,7 @@ class MainActivity : AppCompatActivity() {
         if (missing.isNotEmpty()) {
             permissionLauncher.launch(missing.toTypedArray())
         } else {
-            bindPreviewIfPossible()
+            attachPreviewToService()
             autoStartRecording()
         }
     }
