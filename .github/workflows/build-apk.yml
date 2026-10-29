@@ -1,0 +1,89 @@
+name: Build APK
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    name: Build Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew || true
+      - name: Build Debug APK
+        run: gradle :app:assembleDebug --stacktrace --no-daemon
+      - name: Build Release APK
+        run: gradle :app:assembleRelease --stacktrace --no-daemon
+      - name: Prepare artifacts
+        run: |
+          mkdir -p out
+          find app/build/outputs/apk -name "*.apk" -exec cp {} out/ \;
+          ls -lh out/
+      - name: Rename APKs
+        run: |
+          cd out
+          for f in *.apk; do
+            if [[ "$f" == *"release"* ]]; then
+              mv "$f" "MOTOPLAY-release.apk"
+            elif [[ "$f" == *"debug"* ]]; then
+              mv "$f" "MOTOPLAY-debug.apk"
+            fi
+          done
+          ls -lh
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MOTOPLAY-APK
+          path: out/*.apk
+          retention-days: 30
+      - name: Get version info
+        id: version
+        run: |
+          VERSION_NAME=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts | head -1)
+          echo "version=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "tag=v${VERSION_NAME}-build${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+      - name: Create Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: MOTOPLAY ${{ steps.version.outputs.version }} (Build ${{ github.run_number }})
+          body: |
+            ## MOTOPLAY 摩托车行车记录仪
+            **版本**: ${{ steps.version.outputs.version }}
+            **构建号**: ${{ github.run_number }}
+            **提交**: ${{ github.sha }}
+            ### 安装说明
+            1. 下载下方 `MOTOPLAY-release.apk`
+            2. 手机允许「未知来源安装」
+            3. 安装后首次打开，授予相机/麦克风/定位/通知权限
+            ### 功能
+            - 锁屏 / 后台持续录像（前台服务）
+            - 双摄并发录制，不支持时自动降级单后置
+            - 5 分钟自动分段，循环覆盖（默认上限 100GB）
+            - GPS 速度与坐标水印
+            - 视频列表：播放 / 分享 / 删除 / 锁定
+            - 横屏分屏 UI，支持自定义壁纸
+          files: |
+            out/MOTOPLAY-release.apk
+            out/MOTOPLAY-debug.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
