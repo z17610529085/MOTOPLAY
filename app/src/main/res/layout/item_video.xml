@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="12dp"
+    android:layout_marginBottom="8dp"
+    android:background="#22FFFFFF">
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+        <TextView
+            android:id="@+id/tvName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="MOTO_20261029_120000.mp4"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            android:maxLines="1"
+            android:ellipsize="middle" />
+        <TextView
+            android:id="@+id/tvMeta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="--  |  --"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/tvLocked"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🔒"
+        android:textSize="14sp"
+        android:layout_marginEnd="8dp"
+        android:visibility="gone" />
+    <Button
+        android:id="@+id/btnPlay"
+        style="@style/ListButton"
+        android:text="播放" />
+    <Button
+        android:id="@+id/btnShare"
+        style="@style/ListButton"
+        android:text="分享" />
+    <Button
+        android:id="@+id/btnDelete"
+        style="@style/ListButton"
+        android:text="删除" />
+</LinearLayout>
