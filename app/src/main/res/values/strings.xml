@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MOTOPLAY</string>
+    <string name="notif_channel_name">录像服务</string>
+    <string name="notif_channel_desc">保持录像在后台运行</string>
+    <string name="notif_title">MOTOPLAY 正在录像</string>
+    <string name="notif_text">点击返回行车记录仪</string>
+    <string name="btn_start">开始录像</string>
+    <string name="btn_stop">停止录像</string>
+    <string name="btn_lock">锁定视频</string>
+    <string name="btn_list">视频列表</string>
+    <string name="btn_switch_cam">切换摄像头</string>
+    <string name="btn_settings">设置</string>
+    <string name="recording">录像中</string>
+    <string name="not_recording">未录像</string>
+</resources>
