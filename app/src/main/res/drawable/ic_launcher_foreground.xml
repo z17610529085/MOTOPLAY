@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 摩托车主体（居中于自适应图标安全区） -->
+    <group android:translateX="18" android:translateY="30">
+        <!-- 后轮 -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M14,26 m-11,0 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0 M14,26 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+        <!-- 前轮 -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M58,26 m-11,0 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0 M58,26 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+        <!-- 车身 -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M14,26 L26,14 L40,14 L46,20 L52,20 L58,26 L46,26 L40,22 L30,22 L24,26 Z" />
+        <!-- 车把与油箱 -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M44,12 L56,12 L58,16 L46,16 Z" />
+        <!-- 骑手头盔 -->
+        <path
+            android:fillColor="#FFFF6B1A"
+            android:pathData="M30,10 m-7,0 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0" />
+        <!-- 速度动感线 -->
+        <path
+            android:fillColor="#B3FFFFFF"
+            android:pathData="M0,18 L12,18 L12,20 L0,20 Z" />
+        <path
+            android:fillColor="#80FFFFFF"
+            android:pathData="M2,23 L10,23 L10,25 L2,25 Z" />
+    </group>
+</vector>
