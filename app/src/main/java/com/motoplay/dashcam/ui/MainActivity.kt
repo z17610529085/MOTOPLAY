@@ -3,9 +3,11 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
+import android.graphics.SurfaceTexture
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
@@ -51,7 +53,6 @@ class MainActivity : AppCompatActivity() {
         if (denied.isNotEmpty()) {
             Toast.makeText(this, "部分权限未授予，功能可能受限：$denied", Toast.LENGTH_LONG).show()
         }
-        // 权限授予后：挂载预览 + 自动开录
         attachPreviewToService()
         autoStartRecording()
     }
@@ -68,6 +69,15 @@ class MainActivity : AppCompatActivity() {
             applyWallpaper(it.toString())
         }
     }
+    /** TextureView 就绪回调：就绪后立刻把画面挂到服务 */
+    private val surfaceListener = object : TextureView.SurfaceTextureListener {
+        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+            attachPreviewToService()
+        }
+        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean = true
+        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -81,6 +91,8 @@ class MainActivity : AppCompatActivity() {
         applyWallpaper(Prefs.wallpaperPath)
         setupButtons()
         observeState()
+        // TextureView 就绪后挂载画面
+        binding.previewView.surfaceTextureListener = surfaceListener
         requestPermissionsIfNeeded()
     }
     override fun onNewIntent(intent: Intent) {
@@ -91,26 +103,23 @@ class MainActivity : AppCompatActivity() {
     }
     override fun onResume() {
         super.onResume()
-        // 界面可见：把预览控件挂到服务上（界面重建后这里是关键，
-        // 否则服务还拿着旧控件导致画面定格）
+        // 每次回到界面都重新挂载（TextureView 可能被系统回收重建）
         attachPreviewToService()
         autoStartRecording()
     }
     override fun onDestroy() {
         super.onDestroy()
-        // 界面销毁：摘除预览控件，服务继续录像不受影响
+        // 界面销毁时摘除画面目标，但录像继续跑
         if (RecordingService.isRunning) {
             RecordingService.INSTANCE?.attachPreview(null)
         }
     }
-    /** 把当前界面的预览控件挂到服务（服务未运行时仅记录，绑定时会用到） */
+    /** 把 TextureView 挂到服务（服务未运行时仅记录，启动后会读取） */
     private fun attachPreviewToService() {
         val svc = RecordingService.INSTANCE
         if (svc != null) {
             svc.attachPreview(binding.previewView)
         }
-        // 服务未运行时不强求：等 startRecordingIfPermitted 启动服务后，
-        // 服务绑定相机时会读取最新的挂载请求
     }
     /** 自动开始录制（用户未手动停止时） */
     private fun autoStartRecording() {
@@ -226,6 +235,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         RecordingService.start(this)
+        // 服务启动后立刻挂载画面
+        binding.previewView.postDelayed({ attachPreviewToService() }, 300)
     }
     private fun observeState() {
         lifecycleScope.launch {
