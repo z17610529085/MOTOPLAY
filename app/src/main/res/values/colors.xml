@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="white">#FFFFFFFF</color>
+    <color name="black">#FF000000</color>
+    <color name="moto_orange">#FFFF6B1A</color>
+    <color name="moto_dark">#FF121212</color>
+    <color name="glass_bg">#66000000</color>
+    <color name="glass_stroke">#33FFFFFF</color>
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#B3FFFFFF</color>
+    <color name="rec_red">#FFFF3B30</color>
+</resources>
